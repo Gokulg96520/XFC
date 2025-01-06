@@ -1,13 +1,180 @@
-<?xml version="1.0" encoding="utf-8"?>
-<TcPlcObject Version="1.1.0.1">
-  <POU Name="MAIN" Id="{d0c1e160-5bff-4df7-91d5-31a6e1df873d}">
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+  <POU Name="MAIN" Id="{d0c1e160-5bff-4df7-91d5-31a6e1df873d}" SpecialFunc="None">
     <Declaration><![CDATA[PROGRAM MAIN
 VAR
+   
+    useSimulationAxis: BOOL; //Switch Axis
+    bSetEncoderPos: BOOL; //Set Encode Pos to Zero
+    bEnableCamOutput: BOOL := TRUE; //Start XFC Output Cam
+    
+    stEncodeAxisReference : AXIS_REF;
+	encoderPosition: LREAL;
+    fbSetEncoderPosition : MC_SetPosition;
+	encodeSetPos: LREAL;
+	fbDigitalCam: MC_DigitalCamSwitch;
+    stCamSwitchOptions : ST_CamSwitchOptions;
+    CamSwitchData : ARRAY[0..2] OF MC_CamSwitch;
+    CamSwitchRef   : CAMSWITCH_REF;
+    EL2252_Out1_Ref : OUTPUT_REF;
+    EL2252_Out2_Ref : OUTPUT_REF;
+    TrackOptions : TRACK_REF;
+	fbEL2252: XFC_EL2252_V2;
+    EL2252_Channel1_TrackOptions    : TRACK_REF;
+    EL2252_Channel2_TrackOptions    : TRACK_REF;
+    EL2252        : EL2252_IoInterface;
+    stSimAxisReference : AXIS_REF;
+    input1 AT %I* : BOOL;
+    input2 AT %I* : BOOL;
+	fbTest: MC_Power;
+    stAxisReference : AXIS_REF;
+
 END_VAR
-]]>
-    </Declaration>
+]]></Declaration>
     <Implementation>
-      <ST><![CDATA[]]></ST>
+      <ST><![CDATA[(* ----------------- Encoder---------------------------------------------------- *)
+
+(* Steps 
+1.Set Axis as Simulation Axis
+2.In Endcoder -> Go to NC-EncodeTab -> Link you Encode as per the type
+3.Then Set Num & Den Factor according
+    Encode 1 Pulse = 1 MM then keep Num = 1 & Den = 1 
+*)
+
+//Encoder Position
+encoderPosition := stEncodeAxisReference.NcToPlc.ModuloActPos;
+
+//Set Encoder Position
+fbSetEncoderPosition(
+	Axis:=stEncodeAxisReference, 
+	Execute:=bSetEncoderPos, 
+	Position:=encodeSetPos, 
+	Mode:= , 
+	Options:= , 
+	Done=> , 
+	Busy=> , 
+	Error=> , 
+	ErrorID=> );
+bSetEncoderPos := FALSE;
+
+(*-------------------------------------------------------------------------------*)
+
+(* ----------------- Simulation Axis Enable ------------------------------------ *)
+
+fbTest(
+	Axis:=stSimAxisReference, 
+	Enable:=1, 
+	Enable_Positive:=1, 
+	Enable_Negative:=1, 
+	Override:=100, 
+	BufferMode:= , 
+	Options:= , 
+	Status=> , 
+	Busy=> , 
+	Active=> , 
+	Error=> , 
+	ErrorID=> );
+  
+(*-------------------------------------------------------------------------------*)
+
+
+(* ----------------- Simulation Axis Enable ------------------------------------ *)
+IF useSimulationAxis THEN
+    stAxisReference := stSimAxisReference;
+ELSE
+    stAxisReference := stEncodeAxisReference;
+END_IF
+
+(*-------------------------------------------------------------------------------*)
+    
+(* ----------------- Output Switching ------------------------------------------ *)
+
+//Cam Options
+stCamSwitchOptions.EncoderIndex := 0;
+stCamSwitchOptions.UseAcceleration := 0;
+
+//Cam Swith Data 1 
+CamSwitchData[0].AxisDirection := E_CamSwitchDirection.CAMSWITCHDIRECTION_POSITIVE;
+CamSwitchData[0].CamSwitchMode := E_CamSwitchMode.CAMSWITCHMODE_POSITION;
+IF useSimulationAxis THEN
+    CamSwitchData[0].FirstOnPosition := 60.0;
+    CamSwitchData[0].LastOnPosition := 65.0;
+ELSE
+    CamSwitchData[0].FirstOnPosition := 20.0;
+    CamSwitchData[0].LastOnPosition := 25.0;
+END_IF
+//CamSwitchData[0].Duration := ;
+
+//Cam Swith Data 2 
+CamSwitchData[1].AxisDirection := E_CamSwitchDirection.CAMSWITCHDIRECTION_POSITIVE;
+CamSwitchData[1].CamSwitchMode := E_CamSwitchMode.CAMSWITCHMODE_POSITION;
+IF useSimulationAxis THEN
+    CamSwitchData[1].FirstOnPosition := 150.0;
+    CamSwitchData[1].LastOnPosition := 160.0;
+ELSE
+    CamSwitchData[1].FirstOnPosition := 50.0;
+    CamSwitchData[1].LastOnPosition := 55.0;
+END_IF
+//CamSwitchData[0].Duration := ;
+
+//Cam Swith Data 3 
+CamSwitchData[2].AxisDirection := E_CamSwitchDirection.CAMSWITCHDIRECTION_POSITIVE;
+CamSwitchData[2].CamSwitchMode := E_CamSwitchMode.CAMSWITCHMODE_POSITION;
+IF useSimulationAxis THEN
+    CamSwitchData[2].FirstOnPosition := 300.0;
+    CamSwitchData[2].LastOnPosition := 310.0;
+ELSE
+    CamSwitchData[2].FirstOnPosition := 80.0;
+    CamSwitchData[2].LastOnPosition := 85.0;
+END_IF
+//CamSwitchData[0].Duration := ;
+
+//Track Options
+TrackOptions.ModuloPositions := TRUE;
+
+IF useSimulationAxis THEN
+    TrackOptions.ModuloFactor := 360;
+ELSE
+     TrackOptions.ModuloFactor := 100; 
+END_IF
+
+//Cam Switch Reference
+CamSwitchRef.NumberOfSwitches := 3;
+CamSwitchRef.pSwitches        := ADR(CamSwitchData);
+CamSwitchRef.SizeOfSwitches   := SIZEOF(CamSwitchData);
+
+//Digital Cam
+fbDigitalCam(
+	Axis:=stAxisReference,  
+	Switches:=CamSwitchRef, 
+	Output:=EL2252_Out1_Ref, 
+	TrackOptions:=TrackOptions, 
+	Enable:=bEnableCamOutput, 
+	Options:= , 
+	InOperation=> , 
+	Busy=> , 
+	Error=> , 
+	ErrorID=> );
+
+//EL2252 Output 
+fbEL2252(
+	ForceWhenLate:=0, 
+	Error=> , 
+	ErrorID=> , 
+	ErrorOutputMissed=> , 
+	PrecisionReduced=> , 
+	Output1:=EL2252_Out1_Ref, 
+	Output2:=EL2252_Out2_Ref, 
+	TrackOptions1:=TrackOptions, 
+	TrackOptions2:=EL2252_Channel2_TrackOptions, 
+	EL2252:=EL2252);
+
+(*-------------------------------------------------------------------------------*)
+
+
+
+
+]]></ST>
     </Implementation>
   </POU>
 </TcPlcObject>
